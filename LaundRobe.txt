@@ -1,0 +1,1086 @@
+"""
+LAUNDROBE - Smart Laundry Management System
+Simplified Version (Terminal-Based)
+"""
+
+import json
+import os
+from datetime import datetime, timedelta
+from collections import defaultdict
+import shutil
+
+# Google Colab specific imports
+try:
+    from google.colab import drive, files
+    from IPython.display import Image, display
+    COLAB_ENV = True
+except:
+    COLAB_ENV = False
+    print("⚠️ Tidak terdeteksi Google Colab environment")
+
+
+class Laundrobe:
+    def __init__(self):
+        # Setup Google Drive
+        self.drive_mounted = False
+        self.base_path = '/content/drive/MyDrive/laundrobe'
+        self.images_path = f'{self.base_path}/images'
+        self.data_file = f'{self.base_path}/laundrobe_data.json'
+        
+        # Data structures
+        self.pakaian = []
+        self.laundry_history = []
+        self.maintenance_history = []
+        
+        # Settings
+        self.settings = {
+            'harga_cuci_setrika': 8000,
+            'harga_express': 10000,
+            'minimum_kg': 3,
+            'budget_bulanan': 150000,
+            'biaya_detergen_per_kg': 2000,
+            'biaya_listrik_per_cuci': 1500,
+            'biaya_air_per_cuci': 500,
+            'lokasi_user': 'Jakarta'
+        }
+        
+        # Templates
+        self.massa_template = {
+            'Kaos Dalam': 125,
+            'Kaos Biasa': 175,
+            'Kemeja': 250,
+            'Celana Pendek': 200,
+            'Celana Panjang/Jeans': 500,
+            'Jaket Tipis': 350,
+            'Jaket Tebal/Sweater': 650,
+            'Celana Dalam': 65,
+            'Kaos Kaki': 65,
+            'Handuk': 400
+        }
+        
+        self.batas_template = {
+            'Dalam': 1,
+            'Olahraga': 2,
+            'Kasual': 3,
+            'Formal': 4,
+            'Jeans': 6,
+            'Jaket': 8
+        }
+        
+        # Setup environment
+        self.setup_drive()
+        self.load_data()
+    
+    def setup_drive(self):
+        """Mount Google Drive dan setup folder"""
+        if not COLAB_ENV:
+            print("⚠️ Berjalan di luar Google Colab, menggunakan folder lokal")
+            self.base_path = './laundrobe'
+            self.images_path = './laundrobe/images'
+            self.data_file = './laundrobe/laundrobe_data.json'
+        else:
+            print("\n🔗 Mounting Google Drive...")
+            try:
+                drive.mount('/content/drive', force_remount=False)
+                self.drive_mounted = True
+                print("✅ Google Drive berhasil di-mount!")
+            except Exception as e:
+                print(f"❌ Error mounting drive: {e}")
+                return
+        
+        os.makedirs(self.base_path, exist_ok=True)
+        os.makedirs(self.images_path, exist_ok=True)
+        print(f"📁 Folder setup: {self.base_path}")
+    
+    def load_data(self):
+        """Load data dari JSON"""
+        if os.path.exists(self.data_file):
+            try:
+                with open(self.data_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    self.pakaian = data.get('pakaian', [])
+                    self.laundry_history = data.get('laundry_history', [])
+                    self.maintenance_history = data.get('maintenance_history', [])
+                    saved_settings = data.get('settings', {})
+                    self.settings.update(saved_settings)
+                print(f"✅ Data berhasil dimuat: {len(self.pakaian)} pakaian")
+            except Exception as e:
+                print(f"⚠️ Error loading data: {e}")
+        else:
+            print("📝 Memulai database baru")
+    
+    def save_data(self):
+        """Simpan data ke JSON"""
+        data = {
+            'pakaian': self.pakaian,
+            'laundry_history': self.laundry_history,
+            'maintenance_history': self.maintenance_history,
+            'settings': self.settings,
+            'last_updated': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+        
+        try:
+            with open(self.data_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            return True
+        except Exception as e:
+            print(f"❌ Error saving data: {e}")
+            return False
+    
+    def upload_foto(self, nama_item):
+        """Upload foto pakaian"""
+        if not COLAB_ENV:
+            print("⚠️ Upload foto hanya tersedia di Google Colab")
+            return None
+        
+        print(f"\n📸 Upload foto untuk '{nama_item}'")
+        print("Silakan pilih file gambar (JPG, PNG)")
+        
+        try:
+            uploaded = files.upload()
+            if not uploaded:
+                return None
+            
+            filename = list(uploaded.keys())[0]
+            file_ext = os.path.splitext(filename)[1]
+            
+            safe_name = nama_item.replace(' ', '_').lower()
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            new_filename = f"{safe_name}_{timestamp}{file_ext}"
+            
+            dest_path = os.path.join(self.images_path, new_filename)
+            shutil.move(filename, dest_path)
+            
+            print(f"✅ Foto berhasil diupload: {new_filename}")
+            return f"images/{new_filename}"
+            
+        except Exception as e:
+            print(f"❌ Error upload foto: {e}")
+            return None
+    
+    def display_foto(self, foto_path):
+        """Tampilkan foto pakaian"""
+        if not foto_path:
+            print("📷 Tidak ada foto")
+            return
+        
+        full_path = os.path.join(self.base_path, foto_path)
+        
+        if not os.path.exists(full_path):
+            print("❌ File foto tidak ditemukan")
+            return
+        
+        try:
+            if COLAB_ENV:
+                display(Image(filename=full_path, width=300))
+            else:
+                print(f"📷 Foto tersimpan di: {full_path}")
+        except Exception as e:
+            print(f"❌ Error display foto: {e}")
+    
+    def tambah_pakaian(self):
+        """Tambah pakaian baru"""
+        print("\n" + "="*80)
+        print("                        TAMBAH PAKAIAN BARU")
+        print("="*80)
+        
+        nama = input("\n1️⃣ Nama pakaian (contoh: Kemeja Biru Oxford): ")
+        
+        print("\n2️⃣ Kategori:")
+        print("   1. Dalam (Underwear)")
+        print("   2. Olahraga")
+        print("   3. Kasual")
+        print("   4. Formal")
+        print("   5. Jeans")
+        print("   6. Jaket")
+        kat_choice = input("   Pilih (1-6): ")
+        kategori_map = {'1': 'Dalam', '2': 'Olahraga', '3': 'Kasual', '4': 'Formal', '5': 'Jeans', '6': 'Jaket'}
+        kategori = kategori_map.get(kat_choice, 'Kasual')
+        
+        size = input("\n3️⃣ Size (XS/S/M/L/XL/XXL): ").upper()
+        warna = input("\n4️⃣ Warna utama: ")
+        
+        print("\n5️⃣ Massa/Berat pakaian:")
+        for i, (k, v) in enumerate(self.massa_template.items(), 1):
+            print(f"   {i}. {k}: {v}g")
+        print(f"   {len(self.massa_template)+1}. Input manual")
+        
+        massa_choice = input(f"\n   Pilih (1-{len(self.massa_template)+1}): ")
+        if massa_choice == str(len(self.massa_template)+1):
+            massa = int(input("   Massa (gram): "))
+        else:
+            massa = list(self.massa_template.values())[int(massa_choice)-1]
+        
+        brand = input("\n6️⃣ Brand/Merk (opsional): ")
+        
+        print("\n7️⃣ Upload Foto Pakaian")
+        upload = input("   Upload foto sekarang? (y/n): ").lower()
+        foto_path = None
+        if upload == 'y':
+            foto_path = self.upload_foto(nama)
+        
+        pakaian_baru = {
+            'id': len(self.pakaian) + 1,
+            'nama': nama,
+            'kategori': kategori,
+            'size': size,
+            'warna': warna,
+            'massa': massa,
+            'brand': brand,
+            'status': 'bersih',
+            'counter_pakai': 0,
+            'total_pakai_lifetime': 0,
+            'batas_pakai': self.batas_template.get(kategori, 3),
+            'kondisi': 'Bagus',
+            'foto_path': foto_path,
+            'tanggal_beli': datetime.now().strftime('%Y-%m-%d'),
+            'tanggal_laundry_terakhir': None,
+            'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+        
+        self.pakaian.append(pakaian_baru)
+        
+        if self.save_data():
+            print("\n" + "="*80)
+            print(f"✅ Pakaian '{nama}' berhasil ditambahkan!")
+            print("="*80)
+            
+            if foto_path:
+                print("\n📸 Preview Foto:")
+                self.display_foto(foto_path)
+        else:
+            print("\n❌ Gagal menyimpan data!")
+    
+    def lihat_wardrobe(self):
+        """Lihat semua pakaian"""
+        print("\n" + "="*80)
+        print("                           MY WARDROBE")
+        print("="*80)
+        
+        if not self.pakaian:
+            print("\n📝 Wardrobe masih kosong. Tambahkan pakaian terlebih dahulu.")
+            return
+        
+        print("\n🔍 FILTER:")
+        print("1. Semua Pakaian")
+        print("2. Status (Bersih/Kotor/Di Laundry/Sedang Dicuci)")
+        print("3. Brand")
+        
+        filter_type = input("\nPilih filter (1-3, default=1): ") or "1"
+        
+        filtered = self.pakaian.copy()
+        
+        if filter_type == '2':
+            print("\nStatus: 1=Bersih, 2=Kotor, 3=Di Laundry, 4=Sedang Dicuci")
+            status_choice = input("Pilih: ")
+            status_map = {'1': 'bersih', '2': 'kotor', '3': 'di_laundry', '4': 'sedang_dicuci'}
+            status_filter = status_map.get(status_choice)
+            if status_filter:
+                filtered = [p for p in filtered if p['status'] == status_filter]
+        
+        elif filter_type == '3':
+            brands = list(set(p['brand'] for p in self.pakaian if p.get('brand')))
+            if brands:
+                print("\nBrand tersedia:", ', '.join(brands))
+                br = input("Pilih brand: ")
+                filtered = [p for p in filtered if p.get('brand', '').lower() == br.lower()]
+            else:
+                print("\n⚠️ Belum ada brand yang tersimpan")
+                return
+        
+        if not filtered:
+            print("\n❌ Tidak ada pakaian yang sesuai filter")
+            return
+        
+        print("\n📊 SORT BY:")
+        print("1. ID")
+        print("2. Nama")
+        
+        sort_choice = input("\nPilih sort (1-2, default=1): ") or "1"
+        
+        if sort_choice == '2':
+            filtered.sort(key=lambda x: x['nama'])
+        
+        print("\n" + "="*80)
+        for p in filtered:
+            if p['counter_pakai'] == 0 and p['status'] == 'bersih':
+                status_emoji = "🟢"
+            elif p['counter_pakai'] >= p['batas_pakai']:
+                status_emoji = "🔴"
+            elif p['counter_pakai'] >= p['batas_pakai'] - 1:
+                status_emoji = "🟡"
+            else:
+                status_emoji = "🟢"
+            
+            print(f"\n{status_emoji} ID: {p['id']} | {p['nama']}")
+            print(f"   📦 Kategori: {p['kategori']} | Size: {p['size']} | Warna: {p['warna']}")
+            print(f"   ⚖️  Massa: {p['massa']}g | Status: {p['status'].upper().replace('_', ' ')}")
+            print(f"   📊 Counter: {p['counter_pakai']}/{p['batas_pakai']}x | Lifetime: {p['total_pakai_lifetime']}x")
+            
+            if p.get('brand'):
+                print(f"   🏷️  Brand: {p['brand']}")
+            
+            kondisi_emoji = "✨" if p['kondisi'] == 'Bagus' else "⚠️"
+            print(f"   {kondisi_emoji} Kondisi: {p['kondisi']}")
+            
+            if p.get('foto_path'):
+                print(f"   📸 Foto: Ada")
+            
+            print("-"*80)
+        
+        print(f"\n📌 Total: {len(filtered)} item")
+        
+        if COLAB_ENV:
+            view = input("\n👁️  Lihat foto pakaian? Masukkan ID (atau Enter untuk skip): ")
+            if view:
+                try:
+                    item_id = int(view)
+                    item = next((p for p in filtered if p['id'] == item_id), None)
+                    if item and item.get('foto_path'):
+                        print(f"\n📸 Foto: {item['nama']}")
+                        self.display_foto(item['foto_path'])
+                    elif item:
+                        print("❌ Pakaian ini tidak punya foto")
+                    else:
+                        print("❌ ID tidak ditemukan")
+                except:
+                    pass
+    
+    def tandai_pakai(self):
+        """Tandai pakaian sudah dipakai"""
+        print("\n" + "="*80)
+        print("                    TANDAI PAKAIAN SUDAH DIPAKAI")
+        print("="*80)
+        
+        available = [p for p in self.pakaian if p['status'] == 'bersih']
+        
+        if not available:
+            print("\n❌ Tidak ada pakaian bersih yang bisa dipakai!")
+            print("💡 Mungkin sudah waktunya laundry?")
+            return
+        
+        print(f"\n✅ Pakaian Bersih ({len(available)} item):")
+        for p in available:
+            print(f"   ID {p['id']}: {p['nama']} (Kategori: {p['kategori']})")
+        
+        id_input = input("\n👕 Masukkan ID pakaian yang dipakai (atau 0 untuk batal): ")
+        
+        try:
+            item_id = int(id_input)
+            if item_id == 0:
+                return
+            
+            item = next((p for p in self.pakaian if p['id'] == item_id), None)
+            
+            if not item:
+                print("❌ ID tidak ditemukan!")
+                return
+            
+            if item['status'] != 'bersih':
+                print(f"⚠️ Pakaian ini statusnya '{item['status']}', tidak bisa dipakai!")
+                return
+            
+            item['counter_pakai'] += 1
+            item['total_pakai_lifetime'] += 1
+            
+            if item['counter_pakai'] >= item['batas_pakai']:
+                item['status'] = 'kotor'
+                print(f"\n🔴 URGENT! '{item['nama']}' sudah mencapai batas {item['batas_pakai']}x pakai.")
+                print("   Status otomatis berubah menjadi KOTOR - HARUS DICUCI!")
+            elif item['counter_pakai'] >= item['batas_pakai'] - 1:
+                print(f"\n🟡 PERINGATAN! '{item['nama']}' sudah {item['counter_pakai']}x pakai dari batas {item['batas_pakai']}x.")
+                print("   Pakai 1x lagi akan jadi kotor!")
+            else:
+                print(f"\n✅ '{item['nama']}' ditandai sudah dipakai.")
+                print(f"   Counter: {item['counter_pakai']}/{item['batas_pakai']}x")
+            
+            self.save_data()
+            
+        except ValueError:
+            print("❌ Input tidak valid!")
+    
+    def laundry_calculator(self, return_data=False):
+        """Hitung biaya laundry"""
+        print("\n" + "="*80)
+        print("                      KALKULATOR BIAYA LAUNDRY")
+        print("="*80)
+        
+        pakaian_kotor = [p for p in self.pakaian if p['status'] == 'kotor']
+        
+        if not pakaian_kotor:
+            print("\n✨ Tidak ada pakaian kotor yang perlu dicuci!")
+            print("💚 Wardrobe Anda bersih semua!")
+            return None
+        
+        total_massa = sum(p['massa'] for p in pakaian_kotor) / 1000
+        massa_billing = max(total_massa, self.settings['minimum_kg'])
+        
+        print(f"\n📊 RINGKASAN:")
+        print(f"   Total pakaian kotor : {len(pakaian_kotor)} item")
+        print(f"   Total massa         : {total_massa:.2f} kg")
+        if total_massa < self.settings['minimum_kg']:
+            print(f"   Minimum charge      : {self.settings['minimum_kg']} kg")
+            print(f"   Massa billing       : {massa_billing:.2f} kg")
+        
+        print(f"\n📋 Daftar Pakaian Kotor:")
+        for i, p in enumerate(pakaian_kotor, 1):
+            print(f"   {i}. {p['nama']} ({p['massa']}g) - {p['counter_pakai']}x pakai")
+        
+        biaya_cuci_setrika = massa_billing * self.settings['harga_cuci_setrika']
+        biaya_express = massa_billing * self.settings['harga_express']
+        
+        print(f"\n💰 ESTIMASI BIAYA JASA LAUNDRY:")
+        print(f"   1. Cuci + Setrika (3 hari) : Rp {biaya_cuci_setrika:,.0f}")
+        print(f"      ({massa_billing:.1f}kg × Rp {self.settings['harga_cuci_setrika']:,}/kg)")
+        print(f"   2. Express (1 hari)        : Rp {biaya_express:,.0f}")
+        print(f"      ({massa_billing:.1f}kg × Rp {self.settings['harga_express']:,}/kg)")
+        
+        biaya_detergen = massa_billing * self.settings['biaya_detergen_per_kg']
+        biaya_listrik = self.settings['biaya_listrik_per_cuci']
+        biaya_air = self.settings['biaya_air_per_cuci']
+        total_manual = biaya_detergen + biaya_listrik + biaya_air
+        
+        print(f"\n🏠 ESTIMASI BIAYA CUCI MANUAL:")
+        print(f"   Detergen  : Rp {biaya_detergen:,.0f}")
+        print(f"   Listrik   : Rp {biaya_listrik:,.0f}")
+        print(f"   Air       : Rp {biaya_air:,.0f}")
+        print(f"   ─────────────────────")
+        print(f"   TOTAL     : Rp {total_manual:,.0f}")
+        
+        hemat_vs_setrika = biaya_cuci_setrika - total_manual
+        hemat_vs_express = biaya_express - total_manual
+        
+        print(f"\n📊 PERBANDINGAN:")
+        print(f"   Hemat vs Cuci Setrika : Rp {hemat_vs_setrika:,.0f}")
+        print(f"   Hemat vs Express      : Rp {hemat_vs_express:,.0f}")
+        
+        if hemat_vs_setrika > 0:
+            print(f"   💡 Cuci manual lebih hemat {(hemat_vs_setrika/biaya_cuci_setrika)*100:.1f}% dari Cuci Setrika!")
+        
+        if total_massa < self.settings['minimum_kg']:
+            kurang = self.settings['minimum_kg'] - total_massa
+            print(f"\n💡 TIPS HEMAT:")
+            print(f"   Anda kena minimum charge. Tunggu hingga terkumpul {kurang:.1f}kg lagi")
+            print(f"   untuk memaksimalkan biaya laundry!")
+        
+        if return_data:
+            return {
+                'pakaian_kotor': pakaian_kotor,
+                'total_massa': total_massa,
+                'massa_billing': massa_billing,
+                'biaya_cuci_setrika': biaya_cuci_setrika,
+                'biaya_express': biaya_express,
+                'biaya_manual': total_manual
+            }
+        
+        return pakaian_kotor, total_massa
+    
+    def proses_laundry(self):
+        """Proses laundry - 3 OPSI (Cuci Setrika, Express, Manual)"""
+        calc_data = self.laundry_calculator(return_data=True)
+        
+        if not calc_data:
+            return
+        
+        print("\n" + "="*80)
+        print("                         PROSES LAUNDRY")
+        print("="*80)
+        
+        print("\n🧺 PILIH METODE PENCUCIAN:")
+        print("1. 🏪 Jasa Laundry - Cuci + Setrika (3 hari)")
+        print("2. 🏪 Jasa Laundry - Express (1 hari)")
+        print("3. 🏠 Cuci Manual Sendiri (1 hari)")
+        print("4. ❌ Batal")
+        
+        pilihan = input("\nPilih metode (1-4): ")
+        
+        if pilihan == '4':
+            return
+        
+        pakaian_kotor = calc_data['pakaian_kotor']
+        
+        if pilihan in ['1', '2']:
+            if pilihan == '1':
+                paket_name = 'cuci_setrika'
+                biaya = calc_data['biaya_cuci_setrika']
+                hari = 3
+                display_name = "Cuci + Setrika (3 hari)"
+            else:
+                paket_name = 'express'
+                biaya = calc_data['biaya_express']
+                hari = 1
+                display_name = "Express (1 hari)"
+            
+            estimasi_selesai = datetime.now() + timedelta(days=hari)
+            
+            print(f"\n📋 KONFIRMASI:")
+            print(f"   Paket            : {display_name}")
+            print(f"   Total biaya      : Rp {biaya:,.0f}")
+            print(f"   Estimasi selesai : {estimasi_selesai.strftime('%A, %d %B %Y')}")
+            
+            tempat = input("\n🏪 Nama tempat laundry (opsional): ")
+            rating = input("⭐ Rating laundry (1-5, opsional): ")
+            
+            konfirm = input("\n✅ Lanjutkan? (y/n): ")
+            if konfirm.lower() != 'y':
+                return
+            
+            for p in pakaian_kotor:
+                p['status'] = 'di_laundry'
+                p['counter_pakai'] = 0
+                p['tanggal_laundry_terakhir'] = datetime.now().strftime('%Y-%m-%d')
+            
+            self.laundry_history.append({
+                'id': len(self.laundry_history) + 1,
+                'tanggal': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'metode': 'jasa_laundry',
+                'paket': paket_name,
+                'jumlah_item': len(pakaian_kotor),
+                'item_ids': [p['id'] for p in pakaian_kotor],
+                'total_massa_kg': calc_data['total_massa'],
+                'biaya': biaya,
+                'estimasi_selesai': estimasi_selesai.strftime('%Y-%m-%d'),
+                'tempat_laundry': tempat,
+                'rating': int(rating) if rating else None
+            })
+            
+            self.save_data()
+            print(f"\n✅ {len(pakaian_kotor)} pakaian berhasil dikirim ke laundry!")
+            print(f"📅 Ambil pada: {estimasi_selesai.strftime('%d %B %Y')}")
+            
+        elif pilihan == '3':
+            estimasi_kering = datetime.now() + timedelta(days=1)
+            
+            print(f"\n🏠 CUCI MANUAL")
+            print(f"   Estimasi biaya  : Rp {calc_data['biaya_manual']:,.0f}")
+            print(f"   Estimasi kering : {estimasi_kering.strftime('%A, %d %B %Y')}")
+            
+            konfirm = input("\n✅ Lanjutkan? (y/n): ")
+            if konfirm.lower() != 'y':
+                return
+            
+            for p in pakaian_kotor:
+                p['status'] = 'sedang_dicuci'
+                p['counter_pakai'] = 0
+                p['tanggal_laundry_terakhir'] = datetime.now().strftime('%Y-%m-%d')
+            
+            self.laundry_history.append({
+                'id': len(self.laundry_history) + 1,
+                'tanggal': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'metode': 'cuci_manual',
+                'paket': 'manual',
+                'jumlah_item': len(pakaian_kotor),
+                'item_ids': [p['id'] for p in pakaian_kotor],
+                'total_massa_kg': calc_data['total_massa'],
+                'biaya': calc_data['biaya_manual'],
+                'estimasi_selesai': estimasi_kering.strftime('%Y-%m-%d'),
+                'tempat_laundry': 'Rumah'
+            })
+            
+            self.save_data()
+            print(f"\n✅ {len(pakaian_kotor)} pakaian sedang dicuci manual!")
+            print(f"⏰ Kering pada: {estimasi_kering.strftime('%d %B %Y')}")
+    
+    def selesai_laundry(self):
+        """Tandai laundry selesai"""
+        print("\n" + "="*80)
+        print("                        SELESAI LAUNDRY")
+        print("="*80)
+        
+        pakaian_laundry = [p for p in self.pakaian if p['status'] in ['di_laundry', 'sedang_dicuci']]
+        
+        if not pakaian_laundry:
+            print("\n✅ Tidak ada pakaian yang sedang di laundry/dicuci")
+            return
+        
+        print(f"\n🧺 Pakaian yang sedang diproses ({len(pakaian_laundry)} item):")
+        for p in pakaian_laundry:
+            status_text = "DI LAUNDRY" if p['status'] == 'di_laundry' else "SEDANG DICUCI"
+            print(f"   ID {p['id']}: {p['nama']} ({status_text})")
+        
+        print("\n📋 PILIHAN:")
+        print("1. ✅ Tandai SEMUA selesai")
+        print("2. ✅ Tandai per item (pilih ID)")
+        print("3. ❌ Batal")
+        
+        pilihan = input("\nPilih (1-3): ")
+        
+        if pilihan == '1':
+            for p in pakaian_laundry:
+                p['status'] = 'bersih'
+                p['counter_pakai'] = 0
+            
+            self.save_data()
+            print(f"\n✅ {len(pakaian_laundry)} pakaian sudah bersih dan siap dipakai!")
+            
+        elif pilihan == '2':
+            id_selesai = input("\nMasukkan ID pakaian yang selesai: ")
+            try:
+                item_id = int(id_selesai)
+                item = next((p for p in self.pakaian if p['id'] == item_id), None)
+                
+                if item and item['status'] in ['di_laundry', 'sedang_dicuci']:
+                    item['status'] = 'bersih'
+                    item['counter_pakai'] = 0
+                    self.save_data()
+                    print(f"\n✅ '{item['nama']}' sudah bersih dan siap dipakai!")
+                elif item:
+                    print(f"⚠️ '{item['nama']}' tidak sedang di laundry/dicuci")
+                else:
+                    print("❌ ID tidak ditemukan!")
+            except:
+                print("❌ Input tidak valid!")
+    
+    def maintenance_tracker(self):
+        """Tracking kondisi dan maintenance pakaian"""
+        print("\n" + "="*80)
+        print("                    MAINTENANCE & KONDISI PAKAIAN")
+        print("="*80)
+        
+        print("\n🔧 MENU:")
+        print("1. 📊 Cek Kondisi Semua Pakaian")
+        print("2. ⚠️ Update Kondisi Pakaian")
+        print("3. 🔨 Catat Perbaikan/Maintenance")
+        print("4. 📋 History Maintenance")
+        print("5. 🔙 Kembali")
+        
+        pilihan = input("\nPilih (1-5): ")
+        
+        if pilihan == '1':
+            self.cek_kondisi_pakaian()
+        elif pilihan == '2':
+            self.update_kondisi()
+        elif pilihan == '3':
+            self.catat_maintenance()
+        elif pilihan == '4':
+            self.lihat_maintenance_history()
+    
+    def cek_kondisi_pakaian(self):
+        """Cek kondisi semua pakaian"""
+        print("\n📊 KONDISI PAKAIAN:")
+        
+        kondisi_count = defaultdict(int)
+        for p in self.pakaian:
+            kondisi_count[p.get('kondisi', 'Bagus')] += 1
+        
+        print("\n📈 RINGKASAN:")
+        for kondisi, count in sorted(kondisi_count.items()):
+            emoji = "✨" if kondisi == 'Bagus' else "⚠️"
+            print(f"   {emoji} {kondisi}: {count} item")
+        
+        perlu_perhatian = [p for p in self.pakaian if p.get('kondisi') not in ['Bagus', None]]
+        
+        if perlu_perhatian:
+            print(f"\n⚠️ PERLU PERHATIAN ({len(perlu_perhatian)} item):")
+            for p in perlu_perhatian:
+                umur_hari = (datetime.now() - datetime.strptime(p['tanggal_beli'], '%Y-%m-%d')).days
+                umur_bulan = umur_hari // 30
+                print(f"   • ID {p['id']}: {p['nama']}")
+                print(f"     Kondisi: {p['kondisi']} | Umur: {umur_bulan} bulan | Pakai: {p['total_pakai_lifetime']}x")
+        
+        print("\n👴 PAKAIAN BERUMUR (>1 tahun atau >200x pakai):")
+        tua_count = 0
+        for p in self.pakaian:
+            umur_hari = (datetime.now() - datetime.strptime(p['tanggal_beli'], '%Y-%m-%d')).days
+            if umur_hari > 365 or p['total_pakai_lifetime'] > 200:
+                print(f"   • {p['nama']}: {umur_hari//30} bulan, {p['total_pakai_lifetime']}x pakai")
+                tua_count += 1
+        
+        if tua_count == 0:
+            print("   ✅ Tidak ada pakaian yang berumur")
+    
+    def update_kondisi(self):
+        """Update kondisi pakaian"""
+        print("\n⚠️ UPDATE KONDISI PAKAIAN")
+        
+        print(f"\nDaftar Pakaian ({len(self.pakaian)} item):")
+        for p in self.pakaian[:10]:
+            print(f"   ID {p['id']}: {p['nama']} - Kondisi: {p.get('kondisi', 'Bagus')}")
+        if len(self.pakaian) > 10:
+            print(f"   ... dan {len(self.pakaian)-10} item lainnya")
+        
+        id_input = input("\nMasukkan ID pakaian yang ingin diupdate: ")
+        try:
+            item_id = int(id_input)
+            item = next((p for p in self.pakaian if p['id'] == item_id), None)
+            
+            if not item:
+                print("❌ ID tidak ditemukan")
+                return
+            
+            print(f"\nPakaian: {item['nama']}")
+            print(f"Kondisi sekarang: {item.get('kondisi', 'Bagus')}")
+            
+            print("\nKondisi baru:")
+            print("1. Bagus")
+            print("2. Mulai Luntur")
+            print("3. Ada Noda Membandel")
+            print("4. Perlu Dijahit/Perbaikan")
+            print("5. Perlu Diganti")
+            
+            kondisi_choice = input("Pilih (1-5): ")
+            kondisi_map = {'1': 'Bagus', '2': 'Luntur', '3': 'Noda', '4': 'Perlu Jahit', '5': 'Perlu Ganti'}
+            kondisi_baru = kondisi_map.get(kondisi_choice)
+            
+            if kondisi_baru:
+                item['kondisi'] = kondisi_baru
+                catatan = input("Catatan (opsional): ")
+                
+                if catatan:
+                    self.maintenance_history.append({
+                        'tanggal': datetime.now().strftime('%Y-%m-%d'),
+                        'pakaian_id': item_id,
+                        'pakaian_nama': item['nama'],
+                        'jenis': 'update_kondisi',
+                        'kondisi_baru': kondisi_baru,
+                        'catatan': catatan
+                    })
+                
+                self.save_data()
+                print(f"\n✅ Kondisi '{item['nama']}' diupdate menjadi: {kondisi_baru}")
+        
+        except:
+            print("❌ Input tidak valid")
+    
+    def catat_maintenance(self):
+        """Catat perbaikan/maintenance"""
+        print("\n🔨 CATAT MAINTENANCE")
+        
+        print(f"\nDaftar Pakaian ({len(self.pakaian)} item):")
+        for p in self.pakaian[:10]:
+            print(f"   ID {p['id']}: {p['nama']}")
+        if len(self.pakaian) > 10:
+            print(f"   ... dan {len(self.pakaian)-10} item lainnya")
+        
+        id_input = input("\nID pakaian yang diperbaiki: ")
+        try:
+            item_id = int(id_input)
+            item = next((p for p in self.pakaian if p['id'] == item_id), None)
+            
+            if not item:
+                print("❌ ID tidak ditemukan")
+                return
+            
+            print(f"\nPakaian: {item['nama']}")
+            
+            print("\nJenis perbaikan:")
+            print("1. Jahit")
+            print("2. Ganti Kancing")
+            print("3. Perbaikan Resleting")
+            print("4. Pemutihan/Pewarnaan")
+            print("5. Lainnya")
+            
+            jenis_choice = input("Pilih (1-5): ")
+            jenis_map = {'1': 'Jahit', '2': 'Ganti Kancing', '3': 'Resleting', '4': 'Pewarnaan', '5': 'Lainnya'}
+            jenis = jenis_map.get(jenis_choice, 'Lainnya')
+            
+            biaya_input = input("Biaya perbaikan (Rp): ")
+            biaya = int(biaya_input) if biaya_input else 0
+            
+            catatan = input("Catatan detail: ")
+            
+            self.maintenance_history.append({
+                'tanggal': datetime.now().strftime('%Y-%m-%d'),
+                'pakaian_id': item_id,
+                'pakaian_nama': item['nama'],
+                'jenis': jenis,
+                'biaya': biaya,
+                'catatan': catatan
+            })
+            
+            item['kondisi'] = 'Bagus'
+            
+            self.save_data()
+            print(f"\n✅ Maintenance '{item['nama']}' berhasil dicatat!")
+            
+        except:
+            print("❌ Input tidak valid")
+    
+    def lihat_maintenance_history(self):
+        """Lihat history maintenance"""
+        if not self.maintenance_history:
+            print("\n📝 Belum ada history maintenance")
+            return
+        
+        print("\n📋 MAINTENANCE HISTORY:")
+        print("="*80)
+        
+        total_biaya = 0
+        for m in reversed(self.maintenance_history[-20:]):
+            print(f"\n📅 {m['tanggal']}")
+            print(f"   👕 {m['pakaian_nama']}")
+            print(f"   🔨 {m['jenis']}")
+            if m.get('biaya'):
+                print(f"   💰 Rp {m['biaya']:,}")
+                total_biaya += m['biaya']
+            if m.get('catatan'):
+                print(f"   📝 {m['catatan']}")
+            print("-"*80)
+        
+        if total_biaya > 0:
+            print(f"\n💰 Total biaya maintenance: Rp {total_biaya:,}")
+    
+    def rekomendasi_laundry_optimal(self):
+        """Rekomendasi hari laundry optimal"""
+        print("\n" + "="*80)
+        print("                  REKOMENDASI LAUNDRY OPTIMAL")
+        print("="*80)
+        
+        pakaian_kotor = [p for p in self.pakaian if p['status'] == 'kotor']
+        
+        if not pakaian_kotor:
+            print("\n✨ Tidak ada pakaian kotor!")
+            return
+        
+        massa_sekarang = sum(p['massa'] for p in pakaian_kotor) / 1000
+        
+        print(f"\n📊 ANALISIS:")
+        print(f"   Pakaian kotor sekarang: {len(pakaian_kotor)} item ({massa_sekarang:.2f} kg)")
+        
+        avg_pakai_per_hari = sum(p['total_pakai_lifetime'] for p in self.pakaian) / len(self.pakaian) / 30 if self.pakaian else 1
+        avg_massa_per_hari = avg_pakai_per_hari * 250 / 1000
+        
+        print(f"   Rata-rata bertambah: {avg_massa_per_hari:.2f} kg/hari")
+        
+        print(f"\n📅 PROYEKSI 7 HARI:")
+        for hari in range(1, 8):
+            massa_proyeksi = massa_sekarang + (avg_massa_per_hari * hari)
+            massa_billing = max(massa_proyeksi, self.settings['minimum_kg'])
+            biaya = massa_billing * self.settings['harga_cuci_setrika']
+            
+            marker = ""
+            if massa_proyeksi >= self.settings['minimum_kg'] and massa_proyeksi < self.settings['minimum_kg'] + 1:
+                marker = " ← OPTIMAL"
+            
+            print(f"   Hari +{hari}: {massa_proyeksi:.2f}kg → Rp {biaya:,.0f}{marker}")
+        
+        if massa_sekarang < self.settings['minimum_kg']:
+            hari_optimal = int((self.settings['minimum_kg'] - massa_sekarang) / avg_massa_per_hari) + 1
+            tanggal_optimal = datetime.now() + timedelta(days=hari_optimal)
+            
+            print(f"\n💡 REKOMENDASI:")
+            print(f"   Tunggu hingga {tanggal_optimal.strftime('%A, %d %B')} (hari +{hari_optimal})")
+            print(f"   untuk mencapai {self.settings['minimum_kg']}kg dan memaksimalkan biaya!")
+        else:
+            print(f"\n✅ REKOMENDASI:")
+            print(f"   Laundry sekarang! Sudah mencapai {massa_sekarang:.2f}kg")
+        
+        print(f"\n📅 CEK AGENDA:")
+        urgent_items = [p for p in pakaian_kotor if p['kategori'] == 'Formal']
+        if urgent_items:
+            print(f"   ⚠️ Ada {len(urgent_items)} pakaian formal kotor!")
+            print(f"   Pertimbangkan laundry express jika ada acara penting")
+        else:
+            print(f"   ✅ Tidak ada pakaian formal yang kotor")
+    
+    def settings_menu(self):
+        """Menu settings"""
+        print("\n" + "="*80)
+        print("                           SETTINGS")
+        print("="*80)
+        
+        print(f"\n⚙️ PENGATURAN SAAT INI:")
+        print(f"1. Harga Cuci + Setrika   : Rp {self.settings['harga_cuci_setrika']:,}/kg")
+        print(f"2. Harga Express          : Rp {self.settings['harga_express']:,}/kg")
+        print(f"3. Minimum kg laundry     : {self.settings['minimum_kg']} kg")
+        print(f"4. Budget bulanan         : Rp {self.settings['budget_bulanan']:,}")
+        print(f"5. Biaya detergen         : Rp {self.settings['biaya_detergen_per_kg']:,}/kg")
+        print(f"6. Biaya listrik per cuci : Rp {self.settings['biaya_listrik_per_cuci']:,}")
+        print(f"7. Biaya air per cuci     : Rp {self.settings['biaya_air_per_cuci']:,}")
+        print(f"8. Lokasi                 : {self.settings['lokasi_user']}")
+        print("0. Kembali")
+        
+        pilihan = input("\nPilih yang ingin diubah (0-8): ")
+        
+        settings_map = {
+            '1': ('harga_cuci_setrika', 'Harga Cuci Setrika baru (Rp/kg): '),
+            '2': ('harga_express', 'Harga Express baru (Rp/kg): '),
+            '3': ('minimum_kg', 'Minimum kg baru: '),
+            '4': ('budget_bulanan', 'Budget bulanan baru (Rp): '),
+            '5': ('biaya_detergen_per_kg', 'Biaya detergen baru (Rp/kg): '),
+            '6': ('biaya_listrik_per_cuci', 'Biaya listrik baru (Rp): '),
+            '7': ('biaya_air_per_cuci', 'Biaya air baru (Rp): ')
+        }
+        
+        if pilihan == '8':
+            lokasi = input("Lokasi baru: ")
+            self.settings['lokasi_user'] = lokasi
+            self.save_data()
+            print("✅ Lokasi berhasil diupdate!")
+        elif pilihan in settings_map:
+            key, prompt = settings_map[pilihan]
+            try:
+                nilai = int(input(prompt))
+                self.settings[key] = nilai
+                self.save_data()
+                print("✅ Pengaturan berhasil diupdate!")
+            except:
+                print("❌ Input tidak valid!")
+        elif pilihan != '0':
+            print("❌ Pilihan tidak valid!")
+    
+    def dashboard(self):
+        """Dashboard utama"""
+        print("\n" + "="*80)
+        print("                    🧺 LAUNDROBE - DASHBOARD")
+        print("="*80)
+        
+        if not self.pakaian:
+            print("\n📝 Wardrobe masih kosong. Mulai dengan menambahkan pakaian!")
+            return
+        
+        bersih = len([p for p in self.pakaian if p['status'] == 'bersih'])
+        kotor = len([p for p in self.pakaian if p['status'] == 'kotor'])
+        urgent = len([p for p in self.pakaian if p['counter_pakai'] >= p['batas_pakai'] and p['status'] == 'kotor'])
+        di_laundry = len([p for p in self.pakaian if p['status'] == 'di_laundry'])
+        sedang_dicuci = len([p for p in self.pakaian if p['status'] == 'sedang_dicuci'])
+        
+        print(f"\n📊 STATUS OVERVIEW")
+        print(f"   Baju Bersih      : {bersih} item")
+        print(f"   Perlu Dicuci     : {kotor} item", end='')
+        if urgent > 0:
+            print(f" (🔴 {urgent} urgent)", end='')
+        print()
+        print(f"   Di Laundry       : {di_laundry} item")
+        print(f"   Sedang Dicuci    : {sedang_dicuci} item")
+        
+        urgent_items = [p for p in self.pakaian if p['counter_pakai'] >= p['batas_pakai'] and p['status'] == 'kotor'][:3]
+        warning_items = [p for p in self.pakaian if p['counter_pakai'] >= p['batas_pakai'] - 1 and p['counter_pakai'] < p['batas_pakai']][:2]
+        
+        if urgent_items or warning_items:
+            print(f"\n⚠️ ALERTS")
+            for p in urgent_items:
+                print(f"   🔴 {p['nama']}: Sudah {p['counter_pakai']}x pakai! HARUS DICUCI!")
+            for p in warning_items:
+                print(f"   🟡 {p['nama']}: Sudah {p['counter_pakai']}/{p['batas_pakai']}x pakai")
+        
+        pakaian_kotor = [p for p in self.pakaian if p['status'] == 'kotor']
+        if pakaian_kotor:
+            total_massa = sum(p['massa'] for p in pakaian_kotor) / 1000
+            massa_billing = max(total_massa, self.settings['minimum_kg'])
+            biaya_estimate = massa_billing * self.settings['harga_cuci_setrika']
+            
+            print(f"\n💰 LAUNDRY CALCULATOR")
+            print(f"   Total pakaian kotor  : {len(pakaian_kotor)} item ({total_massa:.2f} kg)")
+            print(f"   Est. biaya cuci setrika: Rp {biaya_estimate:,.0f}")
+            
+            if total_massa < self.settings['minimum_kg']:
+                print(f"   💡 Tunggu hingga {self.settings['minimum_kg']}kg untuk lebih hemat!")
+        
+        if self.laundry_history:
+            bulan_ini = datetime.now().strftime('%Y-%m')
+            biaya_bulan_ini = sum(h['biaya'] for h in self.laundry_history if h['tanggal'].startswith(bulan_ini))
+            persentase = (biaya_bulan_ini / self.settings['budget_bulanan']) * 100
+            
+            print(f"\n📈 STATISTIK BULAN INI")
+            total_laundry_bulan = len([h for h in self.laundry_history if h['tanggal'].startswith(bulan_ini)])
+            print(f"   Total laundry  : {total_laundry_bulan}x (Rp {biaya_bulan_ini:,})")
+            print(f"   Budget         : Rp {biaya_bulan_ini:,} / Rp {self.settings['budget_bulanan']:,} ({persentase:.1f}%)")
+            
+            if self.pakaian:
+                top = max(self.pakaian, key=lambda x: x['total_pakai_lifetime'])
+                print(f"   Paling sering  : {top['nama']} ({top['total_pakai_lifetime']}x)")
+            
+            jarang = len([p for p in self.pakaian if p['total_pakai_lifetime'] < 3])
+            if jarang > 0:
+                print(f"   ⚠️ {jarang} item jarang dipakai")
+        
+        print(f"\n📊 QUICK STATS")
+        total = len(self.pakaian)
+        print(f"   Total pakaian   : {total} item")
+        
+        kategori_count = defaultdict(int)
+        for p in self.pakaian:
+            kategori_count[p['kategori']] += 1
+        print(f"   Per kategori    :", end='')
+        for kat, count in sorted(kategori_count.items(), key=lambda x: x[1], reverse=True)[:3]:
+            print(f" {kat}:{count}", end='')
+        print()
+        
+        kondisi_buruk = len([p for p in self.pakaian if p.get('kondisi') not in ['Bagus', None]])
+        if kondisi_buruk > 0:
+            print(f"   ⚠️ Perlu perhatian: {kondisi_buruk} item")
+        
+        print("\n" + "="*80)
+    
+    def menu_utama(self):
+        """Menu utama aplikasi"""
+        while True:
+            self.dashboard()
+            
+            print("\n📱 MENU UTAMA:")
+            print("1. 👕 Lihat Wardrobe")
+            print("2. ➕ Tambah Pakaian Baru")
+            print("3. ✅ Tandai Sudah Pakai")
+            print("4. 🧺 Laundry Manager")
+            print("5. ✔️  Selesai Laundry")
+            print("6. 💰 Kalkulator Biaya Laundry")
+            print("7. 🔧 Maintenance & Kondisi")
+            print("8. 💡 Rekomendasi Laundry Optimal")
+            print("9. ⚙️  Settings")
+            print("0. ❌ Keluar")
+            
+            pilihan = input("\n🎯 Pilih menu (0-9): ")
+            
+            try:
+                if pilihan == '1':
+                    self.lihat_wardrobe()
+                elif pilihan == '2':
+                    self.tambah_pakaian()
+                elif pilihan == '3':
+                    self.tandai_pakai()
+                elif pilihan == '4':
+                    self.proses_laundry()
+                elif pilihan == '5':
+                    self.selesai_laundry()
+                elif pilihan == '6':
+                    self.laundry_calculator()
+                elif pilihan == '7':
+                    self.maintenance_tracker()
+                elif pilihan == '8':
+                    self.rekomendasi_laundry_optimal()
+                elif pilihan == '9':
+                    self.settings_menu()
+                elif pilihan == '0':
+                    print("\n" + "="*80)
+                    print("         👋 Terima kasih telah menggunakan LAUNDROBE!")
+                    print("                   Data Anda tersimpan di Google Drive")
+                    print("="*80)
+                    break
+                else:
+                    print("\n❌ Pilihan tidak valid! Silakan pilih 0-9")
+                    
+                if pilihan != '0':
+                    input("\n⏎ Tekan Enter untuk kembali ke menu...")
+                    
+            except KeyboardInterrupt:
+                print("\n\n⚠️ Program dihentikan oleh user")
+                break
+            except Exception as e:
+                print(f"\n❌ Error: {e}")
+                input("\n⏎ Tekan Enter untuk melanjutkan...")
+
+
+def main():
+    """Main function to run the program"""
+    print("="*80)
+    print("                   🧺 LAUNDROBE - Smart Laundry Management")
+    print("                            SIMPLIFIED VERSION")
+    print("="*80)
+    print("\n✨ Selamat datang di LAUNDROBE!")
+    print("   Sistem manajemen laundry yang simpel dan efisien.\n")
+    
+    input("\n⏎ Tekan Enter untuk memulai...")
+    
+    try:
+        launcher = Laundrobe()
+        launcher.menu_utama()
+    except KeyboardInterrupt:
+        print("\n\n⚠️ Program dihentikan oleh user")
+    except Exception as e:
+        print(f"\n❌ Critical Error: {e}")
+        print("Program akan ditutup.")
+
+
+if __name__ == "__main__":
+    main()
